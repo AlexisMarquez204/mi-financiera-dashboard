@@ -284,6 +284,12 @@
         <button class="tab-button" onclick="openTab(event, 'tabTecnico')">
           Datos Técnicos
         </button>
+         <button class="tab-button" onclick="openTab(event, 'tabSaldosTarjetas')">
+          Saldos de las Tarjetas de Crédito
+        </button>
+         <button class="tab-button" onclick="openTab(event, 'tabGraficasTarjetas')">
+          Gráficas de Tarjetas de Crédito
+        </button>
       </nav>
 
           <h2 style="color: #1e293b;">Tablero de Control Financiero</h2>
@@ -411,6 +417,25 @@
           <p>Motor: DuckDB (Persistente)</p>
         </div>
       </div>
+      
+        <!-- ==========================================================
+        INICIO CONTENIDO TARJETAS
+               ==========================================================
+       dashboard.css contiene estilos base reutilizables del sistema.
+  -->
+      
+       <div id="tabSaldosTarjetas" class="tab-content">
+        <div class="card">
+          <h3>Saldos de las Tarjetas de Crédito</h3>
+        </div>
+      </div>
+      
+       <div id="tabGraficasTarjetas" class="tab-content">
+        <div class="card">
+          <h3>Gráficos de las Tarjetas de Crédito</h3>
+        </div>
+      </div>
+      
 
     </main>
   </div>
