@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="es">
 
@@ -220,6 +221,67 @@
       width: 100%;
     }
 
+    /* ==========================================================
+       TABLA DE TARJETAS DE CRÉDITO
+       ==========================================================
+       CORRECCIÓN: estilos agregados para la tabla que llena
+       cargarTarjetasCredito() en dashboard.master.js.
+    */
+    .tabla-datos {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+
+    .tabla-datos th {
+      text-align: left;
+      padding: 10px 12px;
+      background: #f8fafc;
+      color: #475569;
+      border-bottom: 2px solid #e2e8f0;
+      position: sticky;
+      top: 0;
+    }
+
+    .tabla-datos td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #e2e8f0;
+      color: #1e293b;
+    }
+
+    .tabla-datos tbody tr:hover {
+      background: #eef2ff;
+    }
+
+    .tabla-scroll {
+      max-height: 520px;
+      overflow: auto;
+    }
+
+    /* CORRECCIÓN: paginador de la tabla de tarjetas. */
+    .paginador {
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      justify-content: center;
+      margin-top: 15px;
+      color: #475569;
+      font-size: 0.9rem;
+    }
+
+    .paginador button {
+      padding: 8px 16px;
+      border: 1px solid #e2e8f0;
+      background: white;
+      border-radius: 20px;
+      cursor: pointer;
+    }
+
+    .paginador button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
     /* Animación base para cambio de pestañas */
     @keyframes fadeIn {
       from { opacity: 0; }
@@ -284,12 +346,13 @@
         <button class="tab-button" onclick="openTab(event, 'tabTecnico')">
           Datos Técnicos
         </button>
-         <button class="tab-button" onclick="openTab(event, 'tabSaldosTarjetas')">
-          Saldos de las Tarjetas de Crédito
-        </button>
-         <button class="tab-button" onclick="openTab(event, 'tabGraficasTarjetas')">
-          Gráficas de Tarjetas de Crédito
-        </button>
+        <button class="tab-button" onclick="openTab(event, 'tabSaldosTarjetas')">
+		Saldos de las Tarjetas de Crédito
+		</button>
+
+		<button class="tab-button" onclick="openTab(event, 'tabGraficasTarjetas')">
+			Gráficas de Tarjetas de Crédito
+		</button>
       </nav>
 
           <h2 style="color: #1e293b;">Tablero de Control Financiero</h2>
@@ -425,14 +488,108 @@
   -->
       
        <div id="tabSaldosTarjetas" class="tab-content">
-        <div class="card">
-          <h3>Saldos de las Tarjetas de Crédito</h3>
+
+        <!-- CORRECCIÓN: tarjetas resumen con el mismo diseño de la pestaña
+             "Indicadores Financieros" (las llena actualizarCardsSaldos()). -->
+        <div class="cards-grid">
+          <div class="card">
+            <h3 style="color:#2563eb; margin-top:0;">Límite de Crédito</h3>
+            <div style="margin-bottom:10px;">
+              <small>Límite Total Otorgado</small>
+              <div id="saldosLimite" style="font-size:1.5rem; font-weight:bold;">$0.00</div>
+            </div>
+            <div style="display:flex; justify-content:space-between;">
+              <div>
+                <small>Tarjetas</small>
+                <div id="saldosTarjetas" style="font-weight:600;">0</div>
+              </div>
+              <div>
+                <small>Límite Promedio</small>
+                <div id="saldosLimitePromedio" style="font-weight:600;">$0.00</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3 style="color:#d97706; margin-top:0;">Saldo Utilizado</h3>
+            <div style="margin-bottom:10px;">
+              <small>Saldo Actual Total</small>
+              <div id="saldosUtilizado" style="font-size:1.5rem; font-weight:bold;">$0.00</div>
+            </div>
+            <div style="display:flex; justify-content:space-between;">
+              <div>
+                <small>% de Utilización</small>
+                <div id="saldosPctUtilizado" style="font-weight:600;">0.00 %</div>
+              </div>
+              <div>
+                <small>Saldo Promedio</small>
+                <div id="saldosSaldoPromedio" style="font-weight:600;">$0.00</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3 style="color:#059669; margin-top:0;">Crédito Disponible</h3>
+            <div style="margin-bottom:10px;">
+              <small>Disponible Total</small>
+              <div id="saldosDisponible" style="font-size:1.5rem; font-weight:bold;">$0.00</div>
+            </div>
+            <div style="display:flex; justify-content:space-between;">
+              <div>
+                <small>% Disponible</small>
+                <div id="saldosPctDisponible" style="font-weight:600;">0.00 %</div>
+              </div>
+              <div>
+                <small>Disponible Promedio</small>
+                <div id="saldosDisponiblePromedio" style="font-weight:600;">$0.00</div>
+              </div>
+            </div>
+          </div>
         </div>
+
+
+        <!-- CORRECCIÓN: se quitó la tabla; esta pestaña solo muestra los tableros. -->
       </div>
       
        <div id="tabGraficasTarjetas" class="tab-content">
         <div class="card">
           <h3>Gráficos de las Tarjetas de Crédito</h3>
+        </div>
+
+        <!-- CORRECCIÓN: tarjetas resumen que actualiza
+             actualizarResumenTarjetas() (ids totalTarjetas, etc.). -->
+        <div class="cards-grid">
+          <div class="card">
+            <small>Total de tarjetas</small>
+            <div id="totalTarjetas" style="font-size:1.5rem; font-weight:bold;">0</div>
+          </div>
+          <div class="card">
+            <small>Límite total</small>
+            <div id="limiteTotalTarjetas" style="font-size:1.5rem; font-weight:bold; color:#2563eb;">$0.00</div>
+          </div>
+          <div class="card">
+            <small>Saldo utilizado</small>
+            <div id="saldoTotalTarjetas" style="font-size:1.5rem; font-weight:bold; color:#d97706;">$0.00</div>
+          </div>
+          <div class="card">
+            <small>Disponible total</small>
+            <div id="disponibleTotalTarjetas" style="font-size:1.5rem; font-weight:bold; color:#059669;">$0.00</div>
+          </div>
+        </div>
+
+        <div class="cards-grid">
+          <div class="card">
+            <h3 style="margin-top:0;">Límite vs Saldo vs Disponible</h3>
+            <div class="chart-box">
+              <canvas id="chartLimitesTarjetas"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <h3 style="margin-top:0;">Tarjetas por Estatus</h3>
+            <div class="chart-box">
+              <canvas id="chartEstatusTarjetas"></canvas>
+            </div>
+          </div>
         </div>
       </div>
       

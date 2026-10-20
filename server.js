@@ -80,6 +80,14 @@ function bigIntToString(obj) {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj === 'bigint') return obj.toString();
 
+  /**
+   * CORRECCIÓN: DuckDB entrega las columnas DATE como objetos Date.
+   * Sin este caso, el recorrido de abajo los convertía en {} y se
+   * perdían fecha_emision / fecha_vencimiento de las tarjetas.
+   * Se devuelven como texto YYYY-MM-DD.
+   */
+  if (obj instanceof Date) return obj.toISOString().slice(0, 10);
+
   if (Array.isArray(obj)) {
     return obj.map(bigIntToString);
   }
@@ -394,9 +402,119 @@ app.get('/api/graficas/roi', (req, res) => {
 
   conn.all(sql, ...params, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
+    // CORRECCIÓN: se normalizan los BigInt también en este endpoint
+    // (antes enviaba rows directo y JSON.stringify podía fallar).
+    res.json(bigIntToString(rows));
   });
 });
+
+
+/**
+ * =========================================================
+ * API 4: INFORMACIÓN DE TARJETAS DE CRÉDITO
+ * =========================================================
+ */
+app.get('/api/tarjetas-creditos', (req, res) => {
+  /**
+   * CORRECCIÓN: la tabla tarjeta_credito tiene 18,684 registros.
+   * Enviarlos todos de una vez hacía lenta la pestaña, así que ahora
+   * se pagina con LIMIT/OFFSET. Parámetros opcionales:
+   * - pagina     : número de página (default 1)
+   * - porPagina  : registros por página (default 100, máximo 1000)
+   * Ambos se convierten a entero, por eso es seguro usarlos en el SQL.
+   */
+  const porPagina = Math.min(Math.max(parseInt(req.query.porPagina, 10) || 100, 1), 1000);
+  const pagina = Math.max(parseInt(req.query.pagina, 10) || 1, 1);
+  const offset = (pagina - 1) * porPagina;
+
+  /**
+   * CORRECCIÓN: los montos DECIMAL se convierten a DOUBLE para que
+   * lleguen al navegador siempre como número (no como objeto/BigInt).
+   */
+  const sql = `
+    SELECT
+      id_tarjeta,
+      id_cliente,
+      num_tarjeta,
+      CAST(limite_credito AS DOUBLE) AS limite_credito,
+      CAST(saldo_actual AS DOUBLE) AS saldo_actual,
+      CAST(limite_credito - saldo_actual AS DOUBLE) AS credito_disponible,
+      fecha_emision,
+      fecha_vencimiento,
+      estatus,
+      comentario
+    FROM tarjeta_credito
+    ORDER BY id_tarjeta DESC
+    LIMIT ${porPagina} OFFSET ${offset}
+  `;
+
+  conn.all(sql, (err, rows) => {
+    if (err) {
+      console.error('Error al consultar tarjetas:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+
+    res.json(bigIntToString(rows));
+  });
+});
+
+
+/**
+ * =========================================================
+ * API 5: INDICADORES AGREGADOS DE TARJETAS DE CRÉDITO
+ * =========================================================
+ */
+app.get('/api/graficas/tarjetas-creditos', (req, res) => {
+  // CORRECCIÓN: los DECIMAL / SUM se convierten a DOUBLE (ver API 4).
+  const sqlResumen = `
+    SELECT
+      COUNT(*) AS total_tarjetas,
+      CAST(COALESCE(SUM(limite_credito), 0) AS DOUBLE) AS limite_total,
+      CAST(COALESCE(SUM(saldo_actual), 0) AS DOUBLE) AS saldo_total,
+      CAST(COALESCE(
+        SUM(limite_credito - saldo_actual), 0
+      ) AS DOUBLE) AS disponible_total
+    FROM tarjeta_credito
+  `;
+
+  /**
+   * CORRECCIÓN: GROUP BY 1 agrupa por la expresión COALESCE,
+   * así los estatus NULL salen como 'Sin estatus' en una sola fila.
+   */
+  const sqlEstatus = `
+    SELECT
+      COALESCE(estatus, 'Sin estatus') AS estatus,
+      COUNT(*) AS cantidad_tarjetas,
+      CAST(COALESCE(SUM(limite_credito), 0) AS DOUBLE) AS limite_total,
+      CAST(COALESCE(SUM(saldo_actual), 0) AS DOUBLE) AS saldo_total
+    FROM tarjeta_credito
+    GROUP BY 1
+    ORDER BY cantidad_tarjetas DESC
+  `;
+
+  conn.all(sqlResumen, (err, resumen) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+
+    conn.all(sqlEstatus, (err, estatus) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+
+      res.json({
+        resumen: bigIntToString(resumen[0] || {}),
+        estatus: bigIntToString(estatus || [])
+      });
+    });
+  });
+});
+
+
+
+
+
+
 
 /**
  * =========================================================

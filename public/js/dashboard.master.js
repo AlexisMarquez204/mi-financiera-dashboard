@@ -112,8 +112,10 @@ function fmtPercent(n) {
  * @param {string} endpoint Ruta del recurso (ej. '/kpis-sidebar')
  * @returns {Promise<Object>} Respuesta JSON del backend
  */
-async function getData(endpoint) {
-  const params = new URLSearchParams(filtros);
+// CORRECCIÓN: getData acepta parámetros extra opcionales (ej. { pagina: 2 })
+// que se suman a los filtros; así la tabla de tarjetas puede paginar.
+async function getData(endpoint, extra = {}) {
+  const params = new URLSearchParams({ ...filtros, ...extra });
   const url = `${API}${endpoint}?${params}`;
 
   try {
@@ -233,9 +235,17 @@ function setEstatus(estatus) {
   filtros.estatus = estatus;
 
   document.querySelectorAll('#estatusButtons button').forEach(b => {
-    const esActivo =
-      (estatus === '' && b.textContent === 'Todos') ||
-      (b.textContent === estatus);
+    /**
+     * CORRECCIÓN: antes se comparaba b.textContent === estatus,
+     * pero el botón "Atrasado" envía el valor 'Atraso', por lo que
+     * nunca se marcaba como activo. Ahora se compara contra el valor
+     * real enviado en el atributo onclick del botón.
+     */
+    const valorBoton = (b.getAttribute('onclick') || '')
+      .replace(/^setEstatus\('/, '')
+      .replace(/'\)$/, '');
+
+    const esActivo = valorBoton === estatus;
 
     b.className = esActivo ? 'active' : '';
   });
@@ -301,14 +311,28 @@ function openTab(evt, tabName) {
     evt.currentTarget.classList.add('active');
   }
 
-  if (tabName === 'tabTendencias') {
+  
+    if (tabName === 'tabTendencias') {
     if (typeof cargarGraficasTendencias === 'function') {
       cargarGraficasTendencias();
     } else {
       console.error('dashboard.trends.js no está cargado.');
     }
   }
+
+  if (tabName === 'tabSaldosTarjetas') {
+    // CORRECCIÓN: ya no se muestra la tabla; solo se cargan los tableros.
+    // cargarTarjetasCredito();
+    cargarResumenSaldosTarjetas();
+  }
+
+  if (tabName === 'tabGraficasTarjetas') {
+    cargarGraficasTarjetasCredito();
+  }
 }
+  
+// CORRECCIÓN: aquí había una llave "}" sobrante que causaba un
+// error de sintaxis y detenía la ejecución de todo el archivo.
 
 // ---------------------------------------------------------
 // 9. INICIALIZACIÓN DEL DASHBOARD
@@ -331,3 +355,303 @@ document.addEventListener('DOMContentLoaded', () => {
   cargarKPIsSidebar();
   cargarFinancieros();
 });
+
+
+// ---------------------------------------------------------
+// 10. TARJETAS DE CRÉDITO: TABLA Y RESUMEN
+// ---------------------------------------------------------
+
+// CORRECCIÓN: estado de la paginación de la tabla de tarjetas
+// (la tabla tiene 18,684 registros; se muestran por páginas).
+const TARJETAS_POR_PAGINA = 100;
+let paginaTarjetas = 1;
+const HOY_ISO = new Date().toISOString().slice(0, 10);
+
+/**
+ * CORRECCIÓN: convierte 'YYYY-MM-DD' a 'DD/MM/YYYY' para la tabla.
+ */
+function fmtFecha(f) {
+  if (!f) return '';
+  const [a, m, d] = String(f).slice(0, 10).split('-');
+  return `${d}/${m}/${a}`;
+}
+
+/**
+ * Carga las tarjetas de crédito desde DuckDB
+ * y construye las filas de la tabla HTML.
+ *
+ * @route GET /api/tarjetas-creditos
+ */
+async function cargarTarjetasCredito(pagina = 1) {
+  const contenedor = document.getElementById('tablaTarjetasCredito');
+
+  if (!contenedor) return;
+
+  contenedor.innerHTML = `
+    <tr>
+      <td colspan="9">Cargando tarjetas de crédito...</td>
+    </tr>
+  `;
+
+  // CORRECCIÓN: se pide solo la página actual (ver API 4 en server.js).
+  paginaTarjetas = pagina;
+  const tarjetas = await getData('/tarjetas-creditos', {
+    pagina,
+    porPagina: TARJETAS_POR_PAGINA
+  });
+
+  if (!Array.isArray(tarjetas)) {
+    contenedor.innerHTML = `
+      <tr>
+        <td colspan="9">No fue posible cargar las tarjetas.</td>
+      </tr>
+    `;
+    return;
+  }
+
+  if (tarjetas.length === 0) {
+    contenedor.innerHTML = `
+      <tr>
+        <td colspan="9">No hay tarjetas registradas.</td>
+      </tr>
+    `;
+    actualizarResumenTarjetas({
+      total_tarjetas: 0,
+      limite_total: 0,
+      saldo_total: 0,
+      disponible_total: 0
+    });
+    return;
+  }
+
+  contenedor.innerHTML = tarjetas.map(t => {
+    const numero = String(t.num_tarjeta ?? '');
+    const numeroSeguro = numero.replace(/[&<>"']/g, caracter => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    })[caracter]);
+
+    const estatus = String(t.estatus || 'Sin estatus');
+    const estatusSeguro = estatus.replace(/[&<>"']/g, caracter => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    })[caracter]);
+
+    // CORRECCIÓN: las fechas de vencimiento ya pasadas se marcan en rojo.
+    const vencida = String(t.fecha_vencimiento ?? '').slice(0, 10) < HOY_ISO;
+
+    return `
+      <tr>
+        <td>${t.id_tarjeta ?? ''}</td>
+        <td>${numeroSeguro}</td>
+        <td>${t.id_cliente ?? ''}</td>
+        <td>${fmtMoney(t.limite_credito)}</td>
+        <td>${fmtMoney(t.saldo_actual)}</td>
+        <td>${fmtMoney(t.credito_disponible)}</td>
+        <td>${fmtFecha(t.fecha_emision)}</td>
+        <td style="${vencida ? 'color:#dc2626; font-weight:600;' : ''}">${fmtFecha(t.fecha_vencimiento)}</td>
+        <td>${estatusSeguro}</td>
+      </tr>
+    `;
+  }).join('');
+
+  // CORRECCIÓN: dibuja los botones Anterior / Siguiente.
+  actualizarPaginadorTarjetas(pagina);
+}
+
+
+/**
+ * CORRECCIÓN: dibuja el paginador de la tabla de tarjetas.
+ * El total de tarjetas sale del endpoint de resumen.
+ */
+async function actualizarPaginadorTarjetas(pagina) {
+  const cont = document.getElementById('paginadorTarjetas');
+  if (!cont) return;
+
+  const r = await getData('/graficas/tarjetas-creditos');
+  const total = Number(r && r.resumen ? r.resumen.total_tarjetas : 0);
+  const paginas = Math.max(1, Math.ceil(total / TARJETAS_POR_PAGINA));
+
+  // CORRECCIÓN: con el mismo resumen se llenan las tarjetas superiores.
+  actualizarCardsSaldos(r && r.resumen ? r.resumen : {});
+
+  cont.innerHTML = `
+    <button onclick="cargarTarjetasCredito(${pagina - 1})" ${pagina <= 1 ? 'disabled' : ''}>← Anterior</button>
+    <span>Página ${fmtNumber(pagina)} de ${fmtNumber(paginas)} (${fmtNumber(total)} tarjetas)</span>
+    <button onclick="cargarTarjetasCredito(${pagina + 1})" ${pagina >= paginas ? 'disabled' : ''}>Siguiente →</button>
+  `;
+}
+
+
+/**
+ * CORRECCIÓN: carga los totales de tarjetas y llena los tableros de la
+ * pestaña de saldos (sin tabla).
+ */
+async function cargarResumenSaldosTarjetas() {
+  const r = await getData('/graficas/tarjetas-creditos');
+
+  if (!r || !r.resumen) {
+    console.error('No se pudieron cargar los datos de tarjetas.');
+    return;
+  }
+
+  actualizarCardsSaldos(r.resumen);
+}
+
+/**
+ * CORRECCIÓN: llena las 3 tarjetas superiores de la pestaña de saldos
+ * (mismo diseño que "Indicadores Financieros").
+ */
+function actualizarCardsSaldos(d) {
+  const total = Number(d.total_tarjetas || 0);
+  const limite = Number(d.limite_total || 0);
+  const saldo = Number(d.saldo_total || 0);
+  const disponible = Number(d.disponible_total || 0);
+
+  // Helpers para evitar división entre cero
+  const prom = v => (total > 0 ? v / total : 0);
+  const pct = v => (limite > 0 ? (v / limite) * 100 : 0);
+
+  const asignaciones = {
+    saldosLimite: fmtMoney(limite),
+    saldosTarjetas: fmtNumber(total),
+    saldosLimitePromedio: fmtMoney(prom(limite)),
+    saldosUtilizado: fmtMoney(saldo),
+    saldosPctUtilizado: fmtPercent(pct(saldo)),
+    saldosSaldoPromedio: fmtMoney(prom(saldo)),
+    saldosDisponible: fmtMoney(disponible),
+    saldosPctDisponible: fmtPercent(pct(disponible)),
+    saldosDisponiblePromedio: fmtMoney(prom(disponible))
+  };
+
+  Object.entries(asignaciones).forEach(([id, valor]) => {
+    const elemento = document.getElementById(id);
+    if (elemento) elemento.textContent = valor;
+  });
+}
+
+
+/**
+ * Actualiza las tarjetas resumen de crédito.
+ */
+function actualizarResumenTarjetas(d) {
+  const asignaciones = {
+    totalTarjetas: fmtNumber(d.total_tarjetas),
+    limiteTotalTarjetas: fmtMoney(d.limite_total),
+    saldoTotalTarjetas: fmtMoney(d.saldo_total),
+    disponibleTotalTarjetas: fmtMoney(d.disponible_total)
+  };
+
+  Object.entries(asignaciones).forEach(([id, valor]) => {
+    const elemento = document.getElementById(id);
+    if (elemento) elemento.textContent = valor;
+  });
+}
+
+
+// ---------------------------------------------------------
+// 6.2. TARJETAS DE CRÉDITO: GRÁFICAS
+// ---------------------------------------------------------
+
+let chartLimitesTarjetas = null;
+let chartEstatusTarjetas = null;
+
+/**
+ * Carga los totales de tarjetas y crea las gráficas
+ * con Chart.js.
+ */
+async function cargarGraficasTarjetasCredito() {
+  const d = await getData('/graficas/tarjetas-creditos');
+
+  if (!d || !d.resumen || !Array.isArray(d.estatus)) {
+    console.error('No se pudieron cargar los datos de tarjetas.');
+    return;
+  }
+
+  actualizarResumenTarjetas(d.resumen);
+
+  // Gráfica de límite total contra saldo utilizado.
+  const canvasLimites = document.getElementById('chartLimitesTarjetas');
+
+  if (canvasLimites) {
+    if (chartLimitesTarjetas) {
+      chartLimitesTarjetas.destroy();
+    }
+
+    chartLimitesTarjetas = new Chart(canvasLimites, {
+      type: 'bar',
+      data: {
+        labels: ['Límite de crédito', 'Saldo utilizado', 'Disponible'],
+        datasets: [{
+          label: 'Monto en MXN',
+          data: [
+            Number(d.resumen.limite_total || 0),
+            Number(d.resumen.saldo_total || 0),
+            Number(d.resumen.disponible_total || 0)
+          ],
+          backgroundColor: ['#2563eb', '#d97706', '#059669'],
+          borderRadius: 6
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: context => fmtMoney(context.raw)
+            }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              callback: value =>
+                '$' + Number(value).toLocaleString('es-MX')
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // Gráfica de cantidad de tarjetas por estatus.
+  const canvasEstatus = document.getElementById('chartEstatusTarjetas');
+
+  if (canvasEstatus) {
+    if (chartEstatusTarjetas) {
+      chartEstatusTarjetas.destroy();
+    }
+
+    chartEstatusTarjetas = new Chart(canvasEstatus, {
+      type: 'doughnut',
+      data: {
+        labels: d.estatus.map(item => item.estatus),
+        datasets: [{
+          label: 'Tarjetas',
+          data: d.estatus.map(item => Number(item.cantidad_tarjetas || 0)),
+          backgroundColor: [
+            '#2563eb',
+            '#059669',
+            '#d97706',
+            '#dc2626',
+            '#7c3aed',
+            '#64748b'
+          ]
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false
+      }
+    });
+  }
+}
