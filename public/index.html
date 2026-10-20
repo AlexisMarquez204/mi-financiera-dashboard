@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <!-- ==========================================================
+       CONFIGURACIÓN BÁSICA DEL DOCUMENTO
+       ==========================================================
+       Define codificación, viewport responsive y título del tablero.
+       MTI JERM
+  -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard Financiera - Demo DuckDB</title>
+
+  <!-- ==========================================================
+       HOJAS DE ESTILO EXTERNAS
+       ==========================================================
+       dashboard.css contiene estilos base reutilizables del sistema.
+  -->
+  <link rel="stylesheet" href="/css/dashboard.css">
+
+  <!-- ==========================================================
+       LIBRERÍAS DE TERCEROS
+       ==========================================================
+       Chart.js se utiliza para renderizar gráficas financieras.
+       Se carga en versión UMD para uso directo en navegador.
+  -->
+  <script src="/libs/chart.js/chart.umd.min.js"></script>
+
+  <!-- ==========================================================
+       LÓGICA DEL DASHBOARD
+       ==========================================================
+       dashboard.master.js  -> KPIs, filtros, pestañas, lógica general
+       dashboard.trends.js  -> Gráficas, tendencias y ROI
+       defer asegura que el DOM esté listo antes de ejecutarse.
+  -->
+  <script src="/js/dashboard.master.js" defer></script>
+  <script src="/js/dashboard.trends.js" defer></script>
+
+  <style>
+    /**
+     * ==========================================================
+     * SISTEMA DE DISEÑO Y LAYOUT GENERAL
+     * ==========================================================
+     * Estilos específicos para la demo del tablero financiero.
+     * No afectan la lógica ni los datos.
+     */
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #f1f5f9;
+      margin: 0;
+      padding: 20px;
+    }
+
+    /* Layout principal: sidebar + contenido */
+    .flex {
+      display: flex;
+      gap: 20px;
+      min-height: 100vh;
+    }
+
+    /* ==========================================================
+       PANEL LATERAL – KPIs HISTÓRICOS
+       ==========================================================
+       Muestra indicadores acumulados globales del sistema.
+    */
+    .sidebar {
+      width: 260px;
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      height: fit-content;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      transition: transform 0.2s ease;
+    }
+
+    /* Efecto visual: elevación sutil */
+    .sidebar:hover {
+      transform: translateY(-2px);
+    }
+
+    .kpi-sidebar-card {
+      background: #f8fafc;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 15px;
+      text-align: center;
+      border: 1px solid #e2e8f0;
+      transition: background 0.2s ease, transform 0.2s ease;
+    }
+
+    /* Efecto visual sin alterar datos */
+    .kpi-sidebar-card:hover {
+      background: #eef2ff;
+      transform: scale(1.02);
+    }
+
+    .kpi-sidebar-value {
+      font-size: 1.8rem;
+      font-weight: 800;
+      color: #1e40af;
+      margin-top: 5px;
+    }
+
+    /* ==========================================================
+       CONTENEDOR PRINCIPAL
+       ========================================================== */
+    .main {
+      flex: 1;
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 25px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    /* Efecto visual: foco al pasar el mouse */
+    .card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 15px -3px rgba(0, 0, 0, 0.15);
+    }
+
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+    }
+
+    /* ==========================================================
+       SISTEMA DE PESTAÑAS
+       ==========================================================
+       Controla la navegación entre vistas del tablero.
+    */
+    .tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      border-bottom: 2px solid #e2e8f0;
+    }
+
+    .tab-button {
+      padding: 12px 24px;
+      background: none;
+      border: none;
+      border-bottom: 3px solid transparent;
+      cursor: pointer;
+      font-weight: 600;
+      color: #64748b;
+      font-size: 1rem;
+      transition: color 0.2s ease, border-color 0.2s ease;
+    }
+
+    .tab-button:hover {
+      color: #1d4ed8;
+    }
+
+    .tab-button.active {
+      color: #2563eb;
+      border-bottom-color: #2563eb;
+    }
+
+    .tab-content {
+      display: none;
+      animation: fadeIn 0.3s ease-in-out;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    /* ==========================================================
+       FILTROS OPERATIVOS
+       ==========================================================
+       Permiten acotar información por estatus y fechas.
+    */
+    .filters {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+      margin-bottom: 20px;
+      background: white;
+      padding: 15px;
+      border-radius: 10px;
+    }
+
+    .estatus-buttons button {
+      padding: 8px 16px;
+      border: 1px solid #e2e8f0;
+      background: white;
+      border-radius: 20px;
+      cursor: pointer;
+      margin-right: 5px;
+      transition: background 0.2s ease, transform 0.2s ease;
+    }
+
+    .estatus-buttons button:hover {
+      transform: scale(1.05);
+    }
+
+    .estatus-buttons button.active {
+      background: #eff6ff;
+      color: #2563eb;
+      border-color: #2563eb;
+      font-weight: bold;
+    }
+
+    /* ==========================================================
+       CONTENEDORES DE GRÁFICAS
+       ==========================================================
+       Área reservada para renderizado de Chart.js.
+    */
+    .chart-box {
+      position: relative;
+      height: 350px;
+      width: 100%;
+    }
+
+    /* Animación base para cambio de pestañas */
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+  </style>
+</head>
+
+<body>
+  <!-- ==========================================================
+       ESTRUCTURA PRINCIPAL DEL DASHBOARD
+       ========================================================== -->
+  <div class="flex">
+
+    <!-- ======================================================
+         SIDEBAR – KPIs HISTÓRICOS
+         ====================================================== -->
+    <aside class="sidebar">
+      <h3 style="text-align:center; color:#334155; margin-top:0;">Histórico Total</h3>
+
+      <!-- Cada KPI se actualiza dinámicamente vía JS -->
+      <div class="kpi-sidebar-card">
+        <small>Clientes</small>
+        <div id="kpiClientes" class="kpi-sidebar-value">--</div>
+      </div>
+
+      <div class="kpi-sidebar-card">
+        <small>Empleados</small>
+        <div id="kpiEmpleados" class="kpi-sidebar-value">--</div>
+      </div>
+
+      <div class="kpi-sidebar-card">
+        <small>Sucursales</small>
+        <div id="kpiSucursales" class="kpi-sidebar-value">--</div>
+      </div>
+
+      <div class="kpi-sidebar-card">
+        <small>Tasa Promedio</small>
+        <div id="kpiTasa" class="kpi-sidebar-value">--%</div>
+      </div>
+
+      <div class="kpi-sidebar-card">
+        <small>Ticket Promedio</small>
+        <div id="kpiCreditoPromedio" class="kpi-sidebar-value">$0</div>
+      </div>
+    </aside>
+
+    <!-- ======================================================
+         CONTENIDO PRINCIPAL
+         ====================================================== -->
+    <main class="main">
+      <h2 style="color: #1e293b;">Tablero de Control Financiero</h2>
+
+      <!-- Navegación por pestañas -->
+      <nav class="tabs">
+        <button class="tab-button active" onclick="openTab(event, 'tabPrestamos')">
+          Indicadores Financieros
+        </button>
+        <button class="tab-button" onclick="openTab(event, 'tabTendencias')">
+          Análisis Gráfico & ROI
+        </button>
+        <button class="tab-button" onclick="openTab(event, 'tabTecnico')">
+          Datos Técnicos
+        </button>
+      </nav>
+
+          <h2 style="color: #1e293b;">Tablero de Control Financiero</h2>
+
+    
+
+      <section class="filters">
+        <div class="estatus-buttons" id="estatusButtons">
+          <span style="margin-right:10px; font-weight:600; color:#475569;">Estatus:</span>
+          <button onclick="setEstatus('')" class="active">Todos</button>
+          <button onclick="setEstatus('Activo')">Activo</button>
+          <button onclick="setEstatus('Pagado')">Pagado</button>
+          <button onclick="setEstatus('Atraso')">Atrasado</button>
+          <button onclick="setEstatus('Cancelado')">Cancelado</button>
+          <button onclick="setEstatus('Castigado')">Castigado</button>
+        </div>
+
+        <div style="border-left: 1px solid #cbd5e1; padding-left: 20px; display:flex; gap:15px;">
+          <div>
+            <label style="font-size:0.85rem; color:#64748b; display:block;">Fecha Inicio</label>
+            <input type="date" id="fechaDesde" value="2021-01-01" style="padding:5px; border:1px solid #cbd5e1; border-radius:5px;">
+          </div>
+          <div>
+            <label style="font-size:0.85rem; color:#64748b; display:block;">Fecha Fin</label>
+            <input type="date" id="fechaHasta" value="2021-12-31" style="padding:5px; border:1px solid #cbd5e1; border-radius:5px;">
+          </div>
+        </div>
+      </section>
+
+      <div id="tabPrestamos" class="tab-content active">
+        <div class="cards-grid">
+          <div class="card">
+            <h3 style="color:#2563eb; margin-top:0;">Colocado (Cohorte)</h3>
+            <div style="margin-bottom:10px;">
+              <small>Capital</small>
+              <div id="colocadoCredito" style="font-size:1.5rem; font-weight:bold;">$0.00</div>
+            </div>
+            <div style="display:flex; justify-content:space-between;">
+              <div>
+                <small>Intereses</small>
+                <div id="colocadoIntereses" style="font-weight:600;">$0.00</div>
+              </div>
+              <div>
+                <small>Comisiones</small>
+                <div id="colocadoComisiones" style="font-weight:600;">$0.00</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3 style="color:#059669; margin-top:0;">Cobrado (Acumulado)</h3>
+            <div style="margin-bottom:10px;">
+              <small>Capital Recuperado</small>
+              <div id="cobradoCredito" style="font-size:1.5rem; font-weight:bold;">$0.00</div>
+            </div>
+            <div style="display:flex; justify-content:space-between;">
+              <div>
+                <small>Intereses</small>
+                <div id="cobradoIntereses" style="font-weight:600;">$0.00</div>
+              </div>
+              <div>
+                <small>Comisiones</small>
+                <div id="cobradoComisiones" style="font-weight:600;">$0.00</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3 style="color:#d97706; margin-top:0;">Saldo Pendiente</h3>
+            <div style="margin-bottom:10px;">
+              <small>Capital por Cobrar</small>
+              <div id="saldoCredito" style="font-size:1.5rem; font-weight:bold;">$0.00</div>
+            </div>
+            <div style="display:flex; justify-content:space-between;">
+              <div>
+                <small>Intereses</small>
+                <div id="saldoIntereses" style="font-weight:600;">$0.00</div>
+              </div>
+              <div>
+                <small>Comisiones</small>
+                <div id="saldoComisiones" style="font-weight:600;">$0.00</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tabTendencias" class="tab-content">
+        <div class="card">
+          <h3 style="margin-top:0;">Evolución Mensual: Colocación vs Recuperación</h3>
+          <p style="color:#64748b; font-size:0.9rem;">Comparativa de colocación mensual vs recuperación histórica de dicha cohorte.</p>
+          <div class="chart-box">
+            <canvas id="chartEvolucion"></canvas>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 style="margin-top:0;">Índice de Recuperación (ROI %)</h3>
+          <p style="color:#64748b; font-size:0.9rem;">Proporción de capital recuperado sobre el total prestado.</p>
+          <div class="chart-box" style="height: 300px;">
+            <canvas id="chartRoi"></canvas>
+          </div>
+        </div>
+
+        <div class="cards-grid">
+          <div class="card">
+            <h3 style="margin-top:0;">Desempeño por Sucursal</h3>
+            <div class="chart-box">
+              <canvas id="chartSucursales"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <h3 style="margin-top:0;">Participación de Mercado</h3>
+            <div class="chart-box">
+              <canvas id="chartPastel"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tabTecnico" class="tab-content">
+        <div class="card">
+          <h3>Estado del Sistema</h3>
+          <p>Latencia API: <span id="dbLatency" style="font-weight:bold;">--</span></p>
+          <p>Motor: DuckDB (Persistente)</p>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</body>
+
+</html>
