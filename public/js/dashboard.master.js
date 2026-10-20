@@ -282,6 +282,16 @@ function recargarTodo() {
       cargarGraficasTendencias();
     }
   }
+  
+  const tabSaldosTarjetas = document.getElementById('tabSaldosTarjetas');
+  if (tabSaldosTarjetas && tabSaldosTarjetas.classList.contains('active')) {
+    cargarResumenSaldosTarjetas();
+  }
+  
+  const tabGraficasTarjetas = document.getElementById('tabGraficasTarjetas');
+  if (tabGraficasTarjetas && tabGraficasTarjetas.classList.contains('active')) {
+    cargarGraficasTarjetasCredito();
+  }
 }
 
 // ---------------------------------------------------------
@@ -311,6 +321,24 @@ function openTab(evt, tabName) {
     evt.currentTarget.classList.add('active');
   }
 
+ // --OCULTAR BOTONES DE ESTATUS EN APARTADOS DE TARJETA
+ 
+ const contenedorEstatus = document.getElementById('estatusButtons');
+  
+ const esPestanaTarjetas = tabName === 'tabSaldosTarjetas' || tabName === 'tabGraficasTarjetas';
+
+  if (contenedorEstatus) {
+    if (esPestanaTarjetas) {
+      contenedorEstatus.style.display = 'none';
+      
+      filtros.estatus = ''; 
+      
+    } else {
+      contenedorEstatus.style.display = 'block'; 
+    }
+  }
+  
+  // --FIN DE CODIGO OCULTAR BOTONES DE ESTATUS
   
     if (tabName === 'tabTendencias') {
     if (typeof cargarGraficasTendencias === 'function') {

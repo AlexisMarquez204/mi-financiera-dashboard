@@ -465,6 +465,16 @@ app.get('/api/tarjetas-creditos', (req, res) => {
  * =========================================================
  */
 app.get('/api/graficas/tarjetas-creditos', (req, res) => {
+	
+	 const {
+    estatus = '',
+    fechaDesde = '2000-01-01',
+    fechaHasta = '2099-12-31'
+  } = req.query;
+  
+  const whereTarjeta = "CAST(fecha_emision AS DATE) BETWEEN CAST(? AS DATE) AND CAST(? AS DATE)";
+  const params = [fechaDesde, fechaHasta];
+
   // CORRECCIÓN: los DECIMAL / SUM se convierten a DOUBLE (ver API 4).
   const sqlResumen = `
     SELECT
@@ -475,6 +485,7 @@ app.get('/api/graficas/tarjetas-creditos', (req, res) => {
         SUM(limite_credito - saldo_actual), 0
       ) AS DOUBLE) AS disponible_total
     FROM tarjeta_credito
+    WHERE ${whereTarjeta}
   `;
 
   /**
@@ -488,16 +499,17 @@ app.get('/api/graficas/tarjetas-creditos', (req, res) => {
       CAST(COALESCE(SUM(limite_credito), 0) AS DOUBLE) AS limite_total,
       CAST(COALESCE(SUM(saldo_actual), 0) AS DOUBLE) AS saldo_total
     FROM tarjeta_credito
+    WHERE ${whereTarjeta}
     GROUP BY 1
     ORDER BY cantidad_tarjetas DESC
   `;
 
-  conn.all(sqlResumen, (err, resumen) => {
+   conn.all(sqlResumen, ...params, (err, resumen) => {
     if (err) {
       return res.status(500).json({ error: err.message });
     }
 
-    conn.all(sqlEstatus, (err, estatus) => {
+    conn.all(sqlEstatus, ...params, (err, estatus) => {
       if (err) {
         return res.status(500).json({ error: err.message });
       }
