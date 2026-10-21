@@ -411,18 +411,74 @@ app.get('/api/graficas/roi', (req, res) => {
 
 /**
  * =========================================================
+ * API : INFORMACIÓN DE TARJETAS DE CRÉDITO
+ * =========================================================
+ */
+app.get('/api/limites-creditos', (req, res) => {
+
+const sql = `select sum(limite_credito) as "Suma Limite Credito"
+FROM tarjeta_credito`;
+ conn.all(sql, (err, rows) => {
+    if (err) {
+      console.error('Error al consultar tarjetas:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+
+    res.json(bigIntToString(rows));
+  });
+});
+
+
+/**
+ * =========================================================
+ * API : INFORMACIÓN DE TARJETAS DE CRÉDITO
+ * =========================================================
+ */
+app.get('/api/saldos-utilizados', (req, res) => {
+
+const sql = `select sum(saldo_actual) as "Saldo Utilizado" 
+FROM tarjeta_credito;`;
+ conn.all(sql, (err, rows) => {
+    if (err) {
+      console.error('Error al consultar tarjetas:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+
+    res.json(bigIntToString(rows));
+  });
+});
+
+/**
+ * =========================================================
+ * API : INFORMACIÓN DE TARJETAS DE CRÉDITO
+ * =========================================================
+ */
+app.get('/api/saldos-actuales', (req, res) => {
+
+const sql = `select sum(limite_credito) -sum( saldo_actual) as "Credito Disponible" 
+FROM tarjeta_credito;`;	
+ conn.all(sql, (err, rows) => {
+    if (err) {
+      console.error('Error al consultar tarjetas:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+
+    res.json(bigIntToString(rows));
+  });
+});
+
+
+
+
+
+
+/**
+ * =========================================================
  * API 4: INFORMACIÓN DE TARJETAS DE CRÉDITO
  * =========================================================
  */
 app.get('/api/tarjetas-creditos', (req, res) => {
-  /**
-   * CORRECCIÓN: la tabla tarjeta_credito tiene 18,684 registros.
-   * Enviarlos todos de una vez hacía lenta la pestaña, así que ahora
-   * se pagina con LIMIT/OFFSET. Parámetros opcionales:
-   * - pagina     : número de página (default 1)
-   * - porPagina  : registros por página (default 100, máximo 1000)
-   * Ambos se convierten a entero, por eso es seguro usarlos en el SQL.
-   */
+  
   const porPagina = Math.min(Math.max(parseInt(req.query.porPagina, 10) || 100, 1), 1000);
   const pagina = Math.max(parseInt(req.query.pagina, 10) || 1, 1);
   const offset = (pagina - 1) * porPagina;
@@ -475,7 +531,6 @@ app.get('/api/graficas/tarjetas-creditos', (req, res) => {
   const whereTarjeta = "CAST(fecha_emision AS DATE) BETWEEN CAST(? AS DATE) AND CAST(? AS DATE)";
   const params = [fechaDesde, fechaHasta];
 
-  // CORRECCIÓN: los DECIMAL / SUM se convierten a DOUBLE (ver API 4).
   const sqlResumen = `
     SELECT
       COUNT(*) AS total_tarjetas,
