@@ -514,73 +514,206 @@ app.get('/api/tarjetas-creditos', (req, res) => {
   });
 });
 
-
 /**
  * =========================================================
- * API 5: INDICADORES AGREGADOS DE TARJETAS DE CRÉDITO
- * =========================================================
+ 
  */
-app.get('/api/graficas/tarjetas-creditos', (req, res) => {
-	
-	 const {
-    estatus = '',
-    fechaDesde = '2000-01-01',
-    fechaHasta = '2099-12-31'
-  } = req.query;
-  
-  const whereTarjeta = "CAST(fecha_emision AS DATE) BETWEEN CAST(? AS DATE) AND CAST(? AS DATE)";
-  const params = [fechaDesde, fechaHasta];
+const CTE_MOVIMIENTOS = `
+  mov AS (
+    SELECT id_tarjeta, orden, fecha_movimiento, tipo_movimiento, monto
+    FROM (
+      SELECT
+        b.id_tarjeta,
+        s.k                                                       	AS orden,
+        CAST(b.f_ini + CAST(FLOOR(GREATEST(b.f_fin - b.f_ini, 0) * s.k / 8.0) AS INTEGER)
+             AS TIMESTAMP)                                         AS fecha_movimiento,
+        CASE WHEN s.k % 2 = 1 THEN 'cargo' ELSE 'pago' END         AS tipo_movimiento,
+        CASE
+          WHEN s.k = 7 THEN b.saldo
+          ELSE CAST(100 * (
+                 CAST(ROUND(b.lim / 1000.0) AS BIGINT)
+               + hash(b.id_tarjeta * 10 + CAST(CEIL(s.k / 2.0) AS INTEGER))
+                 % (CAST(ROUND(b.lim / 100.0) AS BIGINT)
+                  - CAST(ROUND(b.lim / 1000.0) AS BIGINT) + 1)
+               ) AS BIGINT)
+        END                                                        AS monto
+      FROM (
+        SELECT id_tarjeta,
+               CAST(limite_credito AS BIGINT) AS lim,
+               CAST(saldo_actual   AS BIGINT) AS saldo,
+               CAST(fecha_emision  AS DATE)   AS f_ini,
+               LEAST(CAST(fecha_vencimiento AS DATE), CURRENT_DATE) AS f_fin
+        FROM tarjeta_credito
+      ) b
+      CROSS JOIN generate_series(1, 7) AS s(k)
+    )
+    WHERE monto > 0
+  )
+`;
 
-  const sqlResumen = `
+const MONTO_FIRMADO =
+  "CASE WHEN tipo_movimiento = 'cargo' THEN monto ELSE -monto END";
+
+
+app.get('/api/graficas/tarjetas-creditos', (req, res) => {
+
+  const { fechaDesde = '2000-01-01', fechaHasta = '2099-12-31' } = req.query;
+
+  const montoFirmado = "CASE WHEN tipo_movimiento = 'cargo' THEN monto ELSE -monto END";
+
+  // Consultamos los movimientos para sacar el saldo y los datos del periodo
+  const base = `
+    WITH acumulado AS (
+      SELECT id_tarjeta, SUM(${montoFirmado}) AS saldo
+      FROM movimiento_tarjeta_credito
+      WHERE CAST(fecha_movimiento AS DATE) <= CAST(? AS DATE)
+      GROUP BY id_tarjeta
+    ),
+    periodo AS (
+      SELECT id_tarjeta,
+        SUM(CASE WHEN tipo_movimiento = 'cargo' THEN monto ELSE 0 END) AS cargos,
+        SUM(CASE WHEN tipo_movimiento = 'pago' THEN monto ELSE 0 END) AS pagos
+      FROM movimiento_tarjeta_credito
+      WHERE CAST(fecha_movimiento AS DATE) BETWEEN CAST(? AS DATE) AND CAST(? AS DATE)
+      GROUP BY id_tarjeta
+    ),
+    tarjetas AS (
+      SELECT t.id_tarjeta,
+        COALESCE(t.estatus, 'Sin estatus') AS estatus,
+        t.limite_credito,
+        COALESCE(a.saldo, 0) AS saldo,
+        COALESCE(p.cargos, 0) AS cargos,
+        COALESCE(p.pagos, 0) AS pagos
+      FROM tarjeta_credito t
+      LEFT JOIN acumulado a ON a.id_tarjeta = t.id_tarjeta
+      LEFT JOIN periodo p ON p.id_tarjeta = t.id_tarjeta
+      WHERE CAST(t.fecha_emision AS DATE) <= CAST(? AS DATE)
+    )
+  `;
+
+  const params = [fechaHasta, fechaDesde, fechaHasta, fechaHasta];
+
+  const sqlResumen = `${base}
     SELECT
       COUNT(*) AS total_tarjetas,
       CAST(COALESCE(SUM(limite_credito), 0) AS DOUBLE) AS limite_total,
-      CAST(COALESCE(SUM(saldo_actual), 0) AS DOUBLE) AS saldo_total,
-      CAST(COALESCE(
-        SUM(limite_credito - saldo_actual), 0
-      ) AS DOUBLE) AS disponible_total
-    FROM tarjeta_credito
-    WHERE ${whereTarjeta}
+      CAST(COALESCE(SUM(saldo), 0) AS DOUBLE) AS saldo_total,
+      CAST(COALESCE(SUM(limite_credito - saldo), 0) AS DOUBLE) AS disponible_total,
+      CAST(COALESCE(SUM(cargos), 0) AS DOUBLE) AS cargos_periodo,
+      CAST(COALESCE(SUM(pagos), 0) AS DOUBLE) AS pagos_periodo
+    FROM tarjetas
   `;
 
-  /**
-   * CORRECCIÓN: GROUP BY 1 agrupa por la expresión COALESCE,
-   * así los estatus NULL salen como 'Sin estatus' en una sola fila.
-   */
-  const sqlEstatus = `
+  const sqlEstatus = `${base}
     SELECT
-      COALESCE(estatus, 'Sin estatus') AS estatus,
+      estatus,
       COUNT(*) AS cantidad_tarjetas,
-      CAST(COALESCE(SUM(limite_credito), 0) AS DOUBLE) AS limite_total,
-      CAST(COALESCE(SUM(saldo_actual), 0) AS DOUBLE) AS saldo_total
-    FROM tarjeta_credito
-    WHERE ${whereTarjeta}
+      CAST(SUM(limite_credito) AS DOUBLE) AS limite_total,
+      CAST(SUM(saldo) AS DOUBLE) AS saldo_total
+    FROM tarjetas
     GROUP BY 1
     ORDER BY cantidad_tarjetas DESC
   `;
 
-   conn.all(sqlResumen, ...params, (err, resumen) => {
+  conn.all(sqlResumen, ...params, (err, resumen) => {
+
     if (err) {
       return res.status(500).json({ error: err.message });
     }
 
-    conn.all(sqlEstatus, ...params, (err, estatus) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
+    conn.all(sqlEstatus, ...params, (err2, estatus) => {
+
+      if (err2) {
+        return res.status(500).json({ error: err2.message });
       }
 
       res.json({
         resumen: bigIntToString(resumen[0] || {}),
         estatus: bigIntToString(estatus || [])
       });
+
     });
   });
 });
 
 
+// Obtenemos el total de cargos menos los pagos del periodo
+app.get('/api/graficas/movimientos-tarjetas', (req, res) => {
+
+  const { fechaDesde = '2000-01-01', fechaHasta = '2099-12-31' } = req.query;
+
+  const sql = `
+    SELECT CAST(COALESCE(SUM(
+      CASE WHEN tipo_movimiento = 'cargo' THEN monto ELSE -monto END
+    ), 0) AS DOUBLE) AS suma_monto
+    FROM movimiento_tarjeta_credito
+    WHERE CAST(fecha_movimiento AS DATE) BETWEEN CAST(? AS DATE) AND CAST(? AS DATE)
+  `;
+
+  conn.all(sql, fechaDesde, fechaHasta, (err, rows) => {
+
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+
+    res.json(bigIntToString(rows[0] || { suma_monto: 0 }));
+
+  });
+});
 
 
+/**
+ * API: SUMA NETA DE MOVIMIENTOS (cargos - pagos) en el periodo.
+ */
+app.get('/api/graficas/movimientos-tarjetas', (req, res) => {
+  const { fechaDesde = '2000-01-01', fechaHasta = '2099-12-31' } = req.query;
 
+  const sql = `
+    WITH ${CTE_MOVIMIENTOS}
+    SELECT CAST(COALESCE(SUM(${MONTO_FIRMADO}), 0) AS DOUBLE) AS suma_monto
+    FROM mov
+    WHERE CAST(fecha_movimiento AS DATE) BETWEEN CAST(? AS DATE) AND CAST(? AS DATE)`;
+
+  conn.all(sql, fechaDesde, fechaHasta, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(bigIntToString(rows[0] || { suma_monto: 0 }));
+  });
+});
+
+
+/**
+ * =========================================================
+ * API : SUMA DE MOVIMIENTOS DE TARJETAS DE CRÉDITO
+ * =========================================================
+ * Esta API es necesaria para que el frontend pueda consultar
+ * la suma real de los movimientos (cargos/pagos) de las tarjetas
+ * respetando el filtro de fechas.
+ */
+app.get('/api/graficas/movimientos-tarjetas', (req, res) => {
+  const {
+    fechaDesde = '2000-01-01',
+    fechaHasta = '2099-12-31'
+  } = req.query;
+
+  const whereMovimiento = "CAST(fecha_movimiento AS DATE) BETWEEN CAST(? AS DATE) AND CAST(? AS DATE)";
+  const params = [fechaDesde, fechaHasta];
+
+  const sql = `
+    SELECT
+      CAST(COALESCE(SUM(monto), 0) AS DOUBLE) AS suma_monto
+    FROM movimiento_tarjeta_credito
+    WHERE ${whereMovimiento}
+  `;
+
+  conn.all(sql, ...params, (err, rows) => {
+    if (err) {
+      console.error('Error al consultar movimientos:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+
+    res.json(bigIntToString(rows[0] || { suma_monto: 0 }));
+  });
+});
 
 
 /**
